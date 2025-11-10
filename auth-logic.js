@@ -35,6 +35,7 @@ const EMAIL_DOMAIN = "@literagram.com";
 /** * Cuenta el total de documentos en la colección de usuarios para asignar un ID secuencial. */
 async function getNewUserId() {
     try {
+        // Obtenemos el número de documentos existentes (total de usuarios)
         const snapshot = await usersCollection.get();
         return snapshot.size + 1;
     } catch (e) {
@@ -43,18 +44,20 @@ async function getNewUserId() {
     }
 }
 
-/** Utilidad para crear o actualizar el perfil del usuario en Firestore. */
+/** * Utilidad para crear o actualizar el perfil del usuario en Firestore.
+ * Esta función es crítica para asegurar que el perfil exista en la colección /users.
+ */
 async function createOrUpdateProfile(uid, username, nombre, provider, email = null, userId = null) {
     const userRef = db.collection("users").doc(uid);
     const doc = await userRef.get();
 
     if (!doc.exists) {
-        // Si el perfil no existe en Firestore, lo crea
+        // Si el perfil NO existe, lo crea
         const newUserProfile = {
             uid: uid,
             username: username,
             nombre: nombre, 
-            bio: "¡Hola! Nuevo escritor en Literagram.", // Biografía inicial limpia
+            bio: "¡Hola! Nuevo escritor en Literagram.",
             seguidores: 0,
             siguiendo: 0,
             avatarInicial: nombre.charAt(0).toUpperCase(),
@@ -72,7 +75,7 @@ async function createOrUpdateProfile(uid, username, nombre, provider, email = nu
 
 
 // =========================================================
-// 3. RENDERING Y LÓGICA DE VISTAS DE AUTH
+// 3. RENDERING Y LÓGICA DE AUTHENTICACIÓN
 // =========================================================
 
 function renderAuthPage(isLogin = true) {
@@ -108,11 +111,7 @@ function renderAuthPage(isLogin = true) {
 }
 
 
-// =========================================================
-// 4. LÓGICA DE AUTHENTICACIÓN SEGURA Y PERSISTENCIA
-// =========================================================
-
-/** Inicia sesión usando la ventana emergente de Google. */
+// INICIO DE SESIÓN CON GOOGLE
 window.signInWithGoogle = async function() {
     const provider = new firebase.auth.GoogleAuthProvider();
 
@@ -157,21 +156,23 @@ async function handleAuthSubmit(event) {
         } else {
             // REGISTRO EMAIL/PASSWORD (Verificaciones)
             isRegistration = true;
+            
             const checkQuery = await usersCollection.where("username", "==", usernameInput).get();
             if (!checkQuery.empty) { throw new Error("El nombre de usuario ya existe."); }
             
             userCredential = await auth.createUserWithEmailAndPassword(email, passwordInput);
         }
 
-        // --- MANEJO DEL PERFIL DESPUÉS DE AUTENTICACIÓN EXITOSA ---
-        const user = userCredential.user || auth.currentUser;
+        // --- LÓGICA DE PERSISTENCIA Y REDIRECCIÓN ---
+        
+        const user = userCredential.user;
         const newNombre = isRegistration ? document.getElementById('reg-nombre').value : user.displayName || usernameInput;
         const newUserId = await getNewUserId();
 
         // 1. Crea o actualiza el perfil en Firestore
         const profileData = await createOrUpdateProfile(user.uid, usernameInput, newNombre, 'Email/Password', user.email, newUserId);
         
-        // 2. Guardar perfil en localStorage y redirigir
+        // 2. Guardar perfil en localStorage
         localStorage.setItem('currentUserData', JSON.stringify(profileData));
         
         if (isRegistration) {
@@ -180,11 +181,13 @@ async function handleAuthSubmit(event) {
              alert("¡Login Exitoso! Redirigiendo a la aplicación principal.");
         }
         
-        window.location.href = 'index.html'; // REDIRECCIÓN FINAL EXITOSA
+        // 3. REDIRECCIÓN FINAL EXITOSA
+        window.location.href = 'index.html'; 
 
     } catch (error) {
         let errorMessage = error.message;
-        if (error.code === 'auth/user-not-found') errorMessage = 'Usuario no encontrado. Regístrate primero.';
+        // Manejo de errores comunes de Firebase
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') errorMessage = 'Usuario no encontrado. Regístrate primero.';
         if (error.code === 'auth/wrong-password') errorMessage = 'Contraseña incorrecta.';
         
         alert(`Error de Autenticación: ${errorMessage}`);
